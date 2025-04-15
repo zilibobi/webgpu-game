@@ -1,0 +1,102 @@
+const pos = array(vec2f(0, -1), vec2f(1, -1), vec2f(0, 0), vec2f(1, 0));
+const pos2 = array(vec2f(-1, -1), vec2f(1, -1), vec2f(-1, 1), vec2f(1, 1));
+
+struct VertexInput {
+  @builtin(vertex_index) vertex: u32,
+  @builtin(instance_index) instance: u32,
+};
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+
+  @location(0) texcoord: vec2f,
+
+  @location(1) @interpolate(flat) cellSize: vec2f,
+
+  @location(2) @interpolate(flat) fgColor: vec4f,
+  @location(3) @interpolate(flat) bgColor: vec4f,
+};
+
+struct Cell {
+  fgColor: vec4f,
+  bgColor: vec4f,
+
+  texOffset: vec2f,
+  texExtent: vec2f,
+
+  size: vec2f,
+  offset: vec2f,
+
+  position: vec2f,
+
+  scale: f32,
+  movesWithCamera: f32,
+
+  transform: mat4x4f,
+}
+
+struct Camera {
+  view: mat4x4f,
+  perspective: mat4x4f,
+}
+
+@group(0) @binding(0) var fontTexture: texture_2d<f32>;
+@group(0) @binding(1) var fontSampler: sampler;
+
+@group(0) @binding(2) var<storage> cells: array<Cell>;
+@group(0) @binding(3) var<uniform> camera: Camera;
+
+@group(0) @binding(4) var <uniform> timestamp: f32;
+
+const pi = radians(180.0);
+
+@vertex
+fn vertex_main(input: VertexInput) -> VertexOutput {
+    let cell = cells[input.instance];
+    let vertPos = (pos2[input.vertex] * cell.size + cell.position + cell.offset) * cell.scale;
+
+    var output: VertexOutput;
+
+    output.cellSize = cell.size;
+
+    output.fgColor = cell.fgColor;
+    output.bgColor = cell.bgColor;
+
+    if cell.movesWithCamera == 1 {
+      output.position = camera.view * cell.transform * vec4f(vertPos, 0, 1);
+    } else {
+      output.position = camera.perspective * cell.transform * vec4f(vertPos, 0, 1);
+    }
+
+    output.texcoord = pos[input.vertex] * vec2f(1, -1);
+    output.texcoord *= cell.texExtent;
+    output.texcoord += cell.texOffset;
+
+    return output;
+}
+
+fn median(texcoord: vec2f) -> f32 {
+    let c = textureSample(fontTexture, fontSampler, texcoord);
+    return max(min(c.r, c.g), min(max(c.r, c.g), c.b));
+}
+
+@fragment
+fn frag_main(input: VertexOutput) -> @location(0) vec4f {
+  let pxRange = 4.0;
+
+  let sz = vec2f(textureDimensions(fontTexture, 0));
+
+  let dx = sz.x * length(vec2f(dpdxFine(input.texcoord.x), dpdyFine(input.texcoord.x)));
+  let dy = sz.y * length(vec2f(dpdxFine(input.texcoord.y), dpdyFine(input.texcoord.y)));
+
+  let toPixels = pxRange * inverseSqrt(dx * dx + dy * dy);
+
+  let edgeWidth = 0.5;
+
+  let sigDist = median(input.texcoord) - edgeWidth;
+  let pxDist = sigDist * toPixels;
+
+  let alpha = smoothstep(-edgeWidth, edgeWidth, pxDist);
+
+  return mix(input.bgColor, input.fgColor, alpha);
+}
