@@ -7,6 +7,7 @@ struct VertexInput {
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
+  @location(0) @interpolate(flat) instance: u32,
 };
 
 struct RenderDescriptor {
@@ -15,13 +16,21 @@ struct RenderDescriptor {
 
   view: mat4x4f,
   static_view: mat4x4f,
+
+  scale: f32,
 }
 
 struct Properties {
+  background_color: vec4f,
+
   anchor_point: vec2f,
+
   size: vec2f,
   position: vec2f,
+
   z_index: vec2f,
+
+  fixed: f32,
   visible: f32,
 }
 
@@ -33,14 +42,22 @@ fn vertex_main(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
 
   let prop = props[input.instance];
-  let vertPos = pos[input.vertex] * prop.size;
 
-  output.position = desc.view * vec4f(vertPos, 0, 1);
+  let pixel_pos = pos[input.vertex] * prop.size * desc.scale + prop.position;
+
+  if prop.fixed == 1 {
+    output.position = desc.static_view * vec4f(pixel_pos, 0, 1);
+  } else {
+    output.position = desc.view * vec4f(pixel_pos, 0, 1);
+  }
+  output.instance = input.instance;
 
   return output;
 }
 
 @fragment
 fn frag_main(input: VertexOutput) -> @location(0) vec4f {
-  return vec4f(1, 1, 1, 1);
+  let prop = props[input.instance];
+
+  return prop.background_color;
 }

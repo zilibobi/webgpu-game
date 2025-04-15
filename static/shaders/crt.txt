@@ -1,0 +1,62 @@
+const pos = array(vec2f(-1, -1), vec2f(1, -1), vec2f(-1, 1), vec2f(1, 1));
+
+const CURVATURE: f32 = 4.2;
+const BLUR: f32 = 0.021;
+const CA_AMT: f32 = 1.024;
+
+struct RenderDescriptor {
+  time: f32,
+  delta_time: f32,
+
+  view: mat4x4f,
+  static_view: mat4x4f,
+
+  scale: f32,
+  viewport_size: vec2f,
+}
+
+@group(0) @binding(0) var u_texture: texture_2d<f32>;
+@group(0) @binding(1) var u_sampler: sampler;
+
+@group(0) @binding(2) var<uniform> desc: RenderDescriptor;
+
+@vertex
+fn vertex_main(@builtin(vertex_index) vertex: u32) -> @builtin(position) vec4f {
+  return vec4f(pos[vertex], 0, 1);
+}
+
+// THE GOAT
+// https://www.shadertoy.com/view/DlfSz8
+// ^^^^^
+@fragment
+fn frag_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = fragCoord.xy / desc.viewport_size;
+
+    // Curving
+    var crtUV = uv * 2.0 - vec2<f32>(1.0, 1.0);
+    let offset = crtUV.yx / CURVATURE;
+    crtUV += crtUV * offset * offset;
+    crtUV = crtUV * 0.5 + vec2<f32>(0.5, 0.5);
+
+    // Edge fade
+    let edge = smoothstep(vec2<f32>(0.0), vec2<f32>(BLUR), crtUV) *
+               (vec2<f32>(1.0) - smoothstep(vec2<f32>(1.0 - BLUR), vec2<f32>(1.0), crtUV));
+
+    // Chromatic aberration
+    let r = textureSample(u_texture, u_sampler, (crtUV - vec2<f32>(0.5)) * CA_AMT + vec2<f32>(0.5)).r;
+    let g = textureSample(u_texture, u_sampler, crtUV).g;
+    let b = textureSample(u_texture, u_sampler, (crtUV - vec2<f32>(0.5)) / CA_AMT + vec2<f32>(0.5)).b;
+    var color = vec3<f32>(r, g, b) * edge.x * edge.y;
+
+    // Scanlines and grille
+    if (fragCoord.y % 2.0 < 1.0) {
+        color *= 0.7;
+    } else if (fragCoord.x % 3.0 < 1.0) {
+        color *= 0.7;
+    } else {
+        color *= 1.2;
+    }
+
+    return vec4<f32>(color, 1.0);
+}
+

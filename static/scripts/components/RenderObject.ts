@@ -1,8 +1,7 @@
 import { MultiVector, Vector2 } from "../primitives/Vector";
-import { assign } from "../utility/array";
+import { setClassFieldChangeCallback } from "../utility/class";
 
 import type View from "./View";
-import type { RenderDescriptor } from "./View";
 
 export default class RenderObject {
   readonly view: View;
@@ -19,9 +18,11 @@ export default class RenderObject {
   Position: MultiVector;
 
   ZIndex: number;
+
+  Fixed: boolean;
   Visible: boolean;
 
-  constructor(view: View, class_name: stringa) {
+  constructor(view: View, class_name: string) {
     this.ClassName = class_name;
     this.AnchorPoint = new Vector2(0, 0);
 
@@ -29,12 +30,32 @@ export default class RenderObject {
     this.Position = new MultiVector();
 
     this.ZIndex = -1;
+
+    this.Fixed = false;
     this.Visible = false;
 
     this.Children = new Set();
 
     this.view = view;
-    this.update_cache = [];
+
+    setClassFieldChangeCallback(
+      this,
+      new RegExp(/^Parent$/),
+      (_, old, current) => {
+        if (old instanceof RenderObject) {
+          old.Children.delete(this);
+        }
+
+        if (current instanceof RenderObject) {
+          current.Children.add(this);
+          current._update();
+        } else {
+          throw new Error(
+            "the parent of a render object can only be another render object.",
+          );
+        }
+      },
+    );
   }
 
   createPipeline(
@@ -87,60 +108,11 @@ export default class RenderObject {
     });
   }
 
-  // When Parent is changed, call this for the value
-  _addChild() {}
-
   _update() {
-    if (this.Parent && !this.Parent.Children.has(this)) {
-      this.Parent.Children.add(this);
-    }
-
-    // TODO: Multi vectors can technically change on every frame
-    // Instead, it's more performant to only trigger their re-serialization
-    // when the relative values are affected (screen size changes)
-    // These vectors are also the only ones right now that can trigger their own updates
-    // Think of a way to add a way for things to trigger updates and re serialization, not just user input (calling update())
-    this.serialize();
+    this.view._updateRenderObject(this);
 
     for (const obj of this.Children.values()) {
       obj._update();
     }
-  }
-
-  serialize(desc: RenderDescriptor) {
-    const data: number[] = [];
-
-    for (const name of this.serialize_order) {
-      const prop = this[name as keyof RenderObject];
-
-      if (!Object.hasOwn(this, name)) {
-        throw new Error(`property '${name}' doesn't exist`);
-      }
-
-      if (
-        typeof prop == "object" &&
-        // @ts-ignore
-        typeof prop.serialize == "function"
-      ) {
-        // @ts-ignore
-        const res = prop.serialize(desc);
-
-        if (res) {
-          assign(data.length, res, data);
-        }
-      } else if (typeof prop == "number") {
-        data.push(prop);
-      } else if (typeof prop == "boolean") {
-        data.push(prop ? 1 : 0);
-      } else {
-        throw new Error(
-          `serialization failed: unsupported property '${name}' data type '${typeof prop}'`,
-        );
-      }
-    }
-
-    this.update_cache = data;
-
-    return data;
   }
 }

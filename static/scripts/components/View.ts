@@ -1,6 +1,8 @@
 import Event from "../primitives/Event";
 import { Vector2, Vector3 } from "../primitives/Vector";
 
+import crtShader from "../../shaders/crt.txt";
+
 import type RenderObject from "./RenderObject";
 
 import { mat4, vec3 } from "wgpu-matrix";
@@ -65,6 +67,10 @@ type MSDFFontData = {
   }[];
 };
 
+function clamp(n: number, min: number, max: number) {
+  return Math.max(Math.min(n, max), min);
+}
+
 export class RenderDescriptor {
   view: View;
   uniform_view: StructuredView;
@@ -85,6 +91,9 @@ export class RenderDescriptor {
     
       view: mat4x4f,
       static_view: mat4x4f,
+
+      scale: f32,
+      viewport_size: vec2f,
     }
     
     @group(0) @binding(0) var<uniform> desc: RenderDescriptor;
@@ -99,16 +108,32 @@ export class RenderDescriptor {
   update() {
     const camera = this.view.Camera;
 
-    const perspective = mat4.perspective(
-      (camera.FieldOfView * Math.PI) / 180,
-      camera.ViewportSize.x / camera.ViewportSize.y,
+    const perspective = mat4.ortho(
+      0,
+      camera.ViewportSize.x,
+      camera.ViewportSize.y,
+      0,
       camera.Near,
       camera.Far,
     );
 
+    const axis = Math.min(camera.ViewportSize.y, camera.ViewportSize.x);
+    const reference =
+      (1 / camera.Resolution.y) *
+      clamp(
+        ((1 / camera.Resolution.x) * camera.ViewportSize.x) /
+          ((1 / camera.Resolution.y) * axis),
+        0,
+        1,
+      );
+
+    const scale = reference * axis;
+
     this.uniform_view.set({
       time: this.time,
       delta_time: this.delta_time,
+      scale: scale,
+      viewport_size: camera.ViewportSize.serialize(),
     });
 
     mat4.translate(
@@ -155,9 +180,9 @@ interface AddRenderObjectParams {
 
 interface Camera {
   Position: Vector3;
-  ViewportSize: Vector2;
 
-  FieldOfView: number;
+  Resolution: Vector2;
+  ViewportSize: Vector2;
 
   Near: number;
   Far: number;
@@ -207,11 +232,13 @@ export default class View {
 
     // Properties
     this.Camera = {
-      Position: new Vector3(0, 0, -10),
+      Position: new Vector3(0, 0, 0),
+
+      Resolution: new Vector2(1920, 1080),
       ViewportSize: new Vector2(),
-      FieldOfView: 60,
-      Near: 0.1,
-      Far: 20,
+
+      Near: 1200,
+      Far: -1000,
     };
 
     // Event definitions
@@ -225,9 +252,71 @@ export default class View {
     });
 
     var lastTimeMs = 0;
+
     var depthTexture: GPUTexture;
+    var offscreenTexture: GPUTexture;
 
     const view = this;
+
+    const crtBindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        // Render descriptor buffer
+        {
+          binding: 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: {},
+        },
+      ],
+    });
+
+    const sampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+
+    var crtBindGroup: GPUBindGroup;
+
+    const crtPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [crtBindGroupLayout],
+      }),
+      label: `CRT::Pipeline`,
+      vertex: {
+        module: device.createShaderModule({
+          label: `CRT::VertexShader`,
+          code: crtShader,
+        }),
+      },
+      fragment: {
+        module: device.createShaderModule({
+          label: `CRT::FragmentShader`,
+          code: crtShader,
+        }),
+        targets: [
+          {
+            format: "bgra8unorm",
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one",
+              },
+            },
+          },
+        ],
+      },
+      primitive: {
+        topology: "triangle-strip",
+        stripIndexFormat: "uint32",
+      },
+    });
 
     // Render loop
     function render(timeMs: number) {
@@ -250,6 +339,23 @@ export default class View {
           format: "depth24plus",
           usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
+
+        offscreenTexture = device.createTexture({
+          size: [canvas.width, canvas.height],
+          format: "bgra8unorm",
+          usage:
+            GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        });
+
+        crtBindGroup = device.createBindGroup({
+          label: `CRT::BindGroup`,
+          layout: crtBindGroupLayout,
+          entries: [
+            { binding: 0, resource: offscreenTexture.createView() },
+            { binding: 1, resource: sampler },
+            { binding: 2, resource: { buffer: view.render_descriptor_buffer } },
+          ],
+        });
       }
 
       const encoder = device.createCommandEncoder();
@@ -258,7 +364,7 @@ export default class View {
         label: "View::RenderPass",
         colorAttachments: [
           {
-            view: context.getCurrentTexture().createView(),
+            view: offscreenTexture.createView(),
             loadOp: "clear",
             storeOp: "store",
           },
@@ -296,6 +402,25 @@ export default class View {
 
         device.queue.submit([encoder.finish()]);
       }
+
+      const postEncoder = device.createCommandEncoder();
+
+      const finalPass = postEncoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: context.getCurrentTexture().createView(),
+            loadOp: "clear",
+            storeOp: "store",
+          },
+        ],
+      });
+
+      finalPass.setPipeline(crtPipeline);
+      finalPass.setBindGroup(0, crtBindGroup);
+      finalPass.draw(4); // assuming full-screen triangle or quad
+      finalPass.end();
+
+      device.queue.submit([postEncoder.finish()]);
 
       view.PostRender.Emit(view.render_descriptor);
 
@@ -359,7 +484,7 @@ export default class View {
 
     info.objs.set(obj, this._getRenderObjectData(obj, info));
 
-    info.buf.set([info.objs.values()]);
+    info.buf.set([...info.objs.values()]);
 
     this.device.queue.writeBuffer(info.prop_buf, 0, info.buf.arrayBuffer);
   }
@@ -378,7 +503,7 @@ export default class View {
         // Property buffer
         {
           binding: 1,
-          visibility: GPUShaderStage.VERTEX,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "read-only-storage" },
         },
       ],
@@ -430,7 +555,7 @@ export default class View {
 
     info.objs.set(params.obj, this._getRenderObjectData(params.obj, info));
 
-    info.buf.set([info.objs.values()]);
+    info.buf.set([...info.objs.values()]);
 
     info.prop_buf = this.device.createBuffer({
       label: `RenderObject.${params.obj.ClassName}::PropertyBuffer`,

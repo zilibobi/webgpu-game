@@ -3,10 +3,15 @@ import type { View } from "../View";
 
 import frameShader from "../../../shaders/frame.txt";
 import { setClassFieldChangeCallback } from "../../utility/class";
+import { Color, type RGBA } from "../../primitives/Color";
 
 export default class Frame extends RenderObject {
+  BackgroundColor: RGBA;
+
   constructor(view: View) {
     super(view, "Frame");
+
+    this.BackgroundColor = Color.fromHex("#fff");
 
     view._addRenderObject({
       obj: this,
@@ -18,8 +23,7 @@ export default class Frame extends RenderObject {
     });
 
     setClassFieldChangeCallback(this, new RegExp(/^[A-z]/), () => {
-      console.log("changed!!!");
-      view._updateRenderObject(this);
+      this._update();
     });
   }
 }
