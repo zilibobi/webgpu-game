@@ -1,6 +1,7 @@
 import View from "./components/View";
 import Frame from "./components/interface/Frame";
-import FlappyBird from "./flappy";
+
+import Player from "./player";
 import Color from "./primitives/Color";
 
 import { MultiVector, UVec2, Vector2 } from "./primitives/Vector";
@@ -13,67 +14,144 @@ if (!canvas) {
 
 const view = new View(canvas);
 
-const RES_WIDTH = 500;
+const RES_WIDTH = 1000;
 const RES_HEIGHT = 1000;
+
+const PLAYER_SIZE = 50;
+
+canvas.width = RES_WIDTH;
+canvas.height = RES_HEIGHT;
 
 view.Camera.Resolution = new Vector2(RES_WIDTH, RES_HEIGHT);
 
 const frame = new Frame(view);
 frame.Fixed = true;
-frame.Size = UVec2.fromAbs(25, 25);
+frame.Size = UVec2.fromAbs(PLAYER_SIZE, PLAYER_SIZE);
+frame.AnchorPoint = new Vector2(0.5, 0.5);
 frame.Position = UVec2.fromRel(0.5, 0.5);
 
 const pipes = new Set();
 
-const PIPE_GAP = 200;
+const PIPE_GAP = 0.3;
 const PIPE_WIDTH = 100;
+
+var lastPipe: Frame;
+var lastPipePos: number;
+var genIntervalIndex: number;
+
+const playerSizeNorm = PLAYER_SIZE / RES_HEIGHT;
 
 function rng(min: number, max: number) {
   return min + (max - min) * Math.random();
 }
 
-function pipeGen(y: number, factor: number, height: number) {
+function pipeGen(y_anchor: number, height: number) {
   const pipe = new Frame(view);
 
+  pipe.AnchorPoint = new Vector2(0, y_anchor);
   pipe.BackgroundColor = Color.fromHex("#36e379");
 
-  pipe.Size = UVec2.fromAbs(
-    PIPE_WIDTH,
-    RES_HEIGHT * height + (PIPE_GAP / 2) * -1,
-  );
+  pipe.Size = UVec2.fromAbs(PIPE_WIDTH, RES_HEIGHT * (height - PIPE_GAP / 2));
 
   pipe.Position = new MultiVector(
     1,
     -view.Camera.Position.x + PIPE_WIDTH * 2,
-    y,
-    factor + (PIPE_GAP / 2) * factor,
+    y_anchor,
+    0,
   );
 
   pipes.add(pipe);
+  lastPipe = pipe;
 }
 
-const genStage = () => {
-  const pos = rng(0.25, 0.75);
+let score = -1;
 
-  pipeGen(pos / 2, -1, pos * 0.5); // top
-  pipeGen(1 - (1 - pos) / 2, 1, (1 - pos) * 0.5); // bottom
+const scoreElement = document.getElementById("score");
+const highScoreElement = document.getElementById("hiscore");
+
+highScoreElement.innerText = `HI: ${localStorage.getItem("hiscore") || 0}`;
+
+const genStage = () => {
+  const pos = rng(0, 1);
+
+  lastPipePos = pos;
+
+  pipeGen(0, pos); // top
+  pipeGen(1, 1 - pos); // bottom
+
+  score += 1;
+
+  scoreElement.innerText = `SCORE: ${score}`;
 };
 
 genStage();
 
-setInterval(genStage, 1500);
+genIntervalIndex = setInterval(genStage, 3000);
 
-const bird = new FlappyBird();
+let elapsedTime = 0;
+let xpos = 0;
+
+const player = new Player();
 
 view.PreRender.Connect((deltaTime) => {
-  canvas.width = document.body.clientWidth;
-  canvas.height = document.body.clientHeight;
+  pipes.forEach((p: Frame) => {
+    const offset = 300 * deltaTime;
 
-  pipes.forEach((p: Frame) => p._update());
+    p.Position.abs_x -= offset;
+    xpos += offset;
 
+    if (p.Position.abs_x + PIPE_WIDTH < -RES_WIDTH) {
+      p.destroy();
+      pipes.delete(p);
+
+      return;
+    }
+
+    p._update();
+  });
+
+  const plrPosNorm =
+    0.5 + player.getposition(elapsedTime) / view.Camera.ViewportSize.y;
+
+  if (lastPipe) {
+    if (
+      plrPosNorm + playerSizeNorm / 2 >= 1 ||
+      // check if in the pipe's x axis
+      (lastPipe.Position.abs_x >=
+        -RES_WIDTH / 2 - PIPE_WIDTH / 2 - PLAYER_SIZE && // left-to-right
+        lastPipe.Position.abs_x <=
+          -RES_WIDTH / 2 + PIPE_WIDTH / 2 - PLAYER_SIZE / 2 && // right-to-left
+        // check if outside the gap
+        (plrPosNorm > lastPipePos + PIPE_GAP / 2 - playerSizeNorm / 2 || // bottom
+          plrPosNorm < lastPipePos - PIPE_GAP / 2 + playerSizeNorm / 2)) // top
+    ) {
+      player.reset();
+
+      if (score > localStorage.getItem("hiscore") || 0) {
+        localStorage.setItem("hiscore", score.toString());
+        highScoreElement.innerText = `HI: ${score}`;
+      }
+
+      score = -1;
+      elapsedTime = 0;
+
+      scoreElement.innerText = "SCORE: 0";
+
+      pipes.forEach((p2: Frame) => p2.destroy());
+
+      pipes.clear();
+
+      clearTimeout(genIntervalIndex);
+      genIntervalIndex = setInterval(genStage, 3000);
+
+      genStage();
+    }
+  }
+
+  frame.Position.abs_y = player.getposition(elapsedTime);
   frame._update();
 
-  view.Camera.Position.x -= 500 * deltaTime;
+  elapsedTime += deltaTime * 4;
 });
 
 document.addEventListener("keydown", (e) => {
@@ -81,9 +159,5 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  bird.jump();
+  player.jump(elapsedTime);
 });
-
-//view.PreRender.Connect((deltaTime) => {
-//  view.Camera.Position.y += 2 * deltaTime;
-//});

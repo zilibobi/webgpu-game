@@ -78,11 +78,15 @@ export class RenderDescriptor {
   time: number;
   delta_time: number;
 
+  scale: number;
+
   constructor(view: View) {
     this.view = view;
 
     this.time = 0;
     this.delta_time = 0;
+
+    this.scale = 1;
 
     const code = `
     struct RenderDescriptor {
@@ -128,6 +132,8 @@ export class RenderDescriptor {
       );
 
     const scale = reference * axis;
+
+    this.scale = scale;
 
     this.uniform_view.set({
       time: this.time,
@@ -204,7 +210,7 @@ export default class View {
   private device: GPUDevice;
 
   private render_info: Map<string, RenderInfo>;
-  private render_descriptor: RenderDescriptor;
+  readonly render_descriptor: RenderDescriptor;
 
   private render_descriptor_buffer: GPUBuffer;
 
@@ -487,6 +493,29 @@ export default class View {
     info.buf.set([...info.objs.values()]);
 
     this.device.queue.writeBuffer(info.prop_buf, 0, info.buf.arrayBuffer);
+  }
+
+  _removeRenderObject(obj: RenderObject) {
+    const info = this.render_info.get(obj.ClassName) as RenderInfo;
+
+    if (!info) {
+      throw new Error(
+        `'${obj.ClassName}' objects haven't been added yet. call '_addRenderObject' before updating this object.`,
+      );
+    }
+
+    if (!info.objs.has(obj)) {
+      throw new Error(`this object doesn't exist, so it can't be removed.`);
+    }
+
+    info.objs.delete(obj);
+
+    if (info.objs.size === 0) {
+      this.render_info.delete(obj.ClassName);
+    } else {
+      info.buf.set([...info.objs.values()]);
+      this.device.queue.writeBuffer(info.prop_buf, 0, info.buf.arrayBuffer);
+    }
   }
 
   _addRenderObject(params: AddRenderObjectParams) {

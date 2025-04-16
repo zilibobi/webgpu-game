@@ -43,13 +43,16 @@ fn vertex_main(input: VertexInput) -> VertexOutput {
 
   let prop = props[input.instance];
 
-  let pixel_pos = pos[input.vertex] * prop.size * desc.scale + prop.position;
+  let anchor_offset = (prop.anchor_point * 2.0 - vec2f(1.0, 1.0));
+  let local_pos = (pos[input.vertex] - anchor_offset) * prop.size / 2;
+  let pixel_pos = local_pos + prop.position;
 
   if prop.fixed == 1 {
     output.position = desc.static_view * vec4f(pixel_pos, 0, 1);
   } else {
     output.position = desc.view * vec4f(pixel_pos, 0, 1);
   }
+
   output.instance = input.instance;
 
   return output;

@@ -115,4 +115,8 @@ export default class RenderObject {
       obj._update();
     }
   }
+
+  destroy() {
+    this.view._removeRenderObject(this);
+  }
 }
