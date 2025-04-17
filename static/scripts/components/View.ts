@@ -208,6 +208,7 @@ const device = await adapter.requestDevice();
 
 export default class View {
   private device: GPUDevice;
+  readonly format: GPUTextureFormat;
 
   private render_info: Map<string, RenderInfo>;
   readonly render_descriptor: RenderDescriptor;
@@ -232,6 +233,7 @@ export default class View {
     });
 
     this.device = device;
+    this.format = navigator.gpu.getPreferredCanvasFormat();
 
     this.render_info = new Map();
     this.render_descriptor = new RenderDescriptor(this);
@@ -304,7 +306,7 @@ export default class View {
         }),
         targets: [
           {
-            format: "bgra8unorm",
+            format: this.format,
             blend: {
               color: {
                 srcFactor: "src-alpha",
@@ -348,7 +350,7 @@ export default class View {
 
         offscreenTexture = device.createTexture({
           size: [canvas.width, canvas.height],
-          format: "bgra8unorm",
+          format: view.format,
           usage:
             GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });

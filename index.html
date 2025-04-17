@@ -10,12 +10,14 @@
       rel="stylesheet"
     />
 
-    <title>Untitled Dungeon Game</title>
+    <title>The Flying Swan</title>
 
     <style>
       * {
         margin: 0;
         box-sizing: border-box;
+
+        touch-action: manipulation;
       }
 
       html,
@@ -36,11 +38,17 @@
         gap: 30px;
       }
 
-      canvas {
-        width: 1000px;
-        height: 1000px;
+      h1 {
+        font-size: 3vmin; /* scales with screen size */
+      }
 
+      canvas {
+        width: 100%;
+        height: auto;
+        max-width: 70vmin; /* vmin picks the smaller of vw or vh */
+        max-height: 70vmin;
         border: 1px dashed #303030;
+        display: block;
       }
 
       .bottom {
@@ -52,7 +60,7 @@
     </style>
   </head>
   <body>
-    <h1>The flying swan</h1>
+    <h1>The Flying Swan</h1>
     <canvas></canvas>
     <div class="bottom">
       <h1 id="score">SCORE: 0</h1>

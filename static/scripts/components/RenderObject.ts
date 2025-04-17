@@ -82,7 +82,7 @@ export default class RenderObject {
         }),
         targets: [
           {
-            format: "bgra8unorm",
+            format: this.view.format,
             blend: {
               color: {
                 srcFactor: "src-alpha",

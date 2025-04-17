@@ -14,8 +14,8 @@ if (!canvas) {
 
 const view = new View(canvas);
 
-const RES_WIDTH = 1000;
-const RES_HEIGHT = 1000;
+const RES_WIDTH = 800;
+const RES_HEIGHT = 800;
 
 const PLAYER_SIZE = 50;
 
@@ -72,7 +72,7 @@ const highScoreElement = document.getElementById("hiscore");
 highScoreElement.innerText = `HI: ${localStorage.getItem("hiscore") || 0}`;
 
 const genStage = () => {
-  const pos = rng(0, 1);
+  const pos = rng(0.2, 0.8);
 
   lastPipePos = pos;
 
@@ -159,5 +159,9 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  player.jump(elapsedTime);
+});
+
+document.addEventListener("pointerdown", (_) => {
   player.jump(elapsedTime);
 });
